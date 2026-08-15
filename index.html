@@ -23,6 +23,92 @@
     margin-top: 4px;
     margin-bottom: 30px;
   }
+  .game-area {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 6px;
+  }
+  .board-column {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .eval-bar-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 4px;
+  }
+  .eval-bar {
+    width: 24px;
+    height: 488px;
+    background: #1a1512;
+    border: 2px solid #c9b58b;
+    border-radius: 3px;
+    position: relative;
+    overflow: hidden;
+  }
+  .eval-fill {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 50%;
+    background: #f0e6d2;
+    transition: height 0.3s ease;
+  }
+  .eval-label {
+    margin-top: 6px;
+    font-size: 0.8em;
+    color: #c9b58b;
+  }
+  .move-panel {
+    width: 190px;
+    max-height: 488px;
+    display: flex;
+    flex-direction: column;
+    border: 2px solid #c9b58b;
+    border-radius: 4px;
+    background: #241f1a;
+    margin-top: 4px;
+  }
+  .move-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 10px;
+    border-bottom: 1px solid #6b4f2a;
+  }
+  .move-panel-header span {
+    color: #c9b58b;
+    font-weight: bold;
+  }
+  .copy-btn {
+    background: #6b4f2a;
+    color: #f0e6d2;
+    border: none;
+    padding: 4px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-family: Georgia, serif;
+    font-size: 0.85em;
+  }
+  .copy-btn:hover { background: #7c5c33; }
+  .move-list {
+    overflow-y: auto;
+    padding: 8px 10px;
+    flex: 1;
+  }
+  .move-row {
+    display: flex;
+    gap: 8px;
+    padding: 2px 0;
+    font-size: 0.95em;
+  }
+  .move-num { color: #8a7860; width: 22px; }
+  .move-white, .move-black { flex: 1; }
   .board-wrapper {
     position: relative;
     display: inline-block;
@@ -137,17 +223,34 @@
   <h1>&#9812; Why I Love Chess</h1>
   <p class="subtitle">Chess is great and learning how to code is difficult.</p>
 
-  <div class="board-wrapper">
-    <div class="board" id="board"></div>
-    <div class="rank-labels">
-      <span>8</span><span>7</span><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span>
+  <div class="game-area">
+    <div class="eval-bar-wrapper">
+      <div class="eval-bar" id="eval-bar"><div class="eval-fill" id="eval-fill"></div></div>
+      <div class="eval-label" id="eval-label">0.0</div>
     </div>
-    <div class="file-labels">
-      <span>a</span><span>b</span><span>c</span><span>d</span><span>e</span><span>f</span><span>g</span><span>h</span>
+
+    <div class="board-column">
+      <div class="board-wrapper">
+        <div class="board" id="board"></div>
+        <div class="rank-labels">
+          <span>8</span><span>7</span><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span>
+        </div>
+        <div class="file-labels">
+          <span>a</span><span>b</span><span>c</span><span>d</span><span>e</span><span>f</span><span>g</span><span>h</span>
+        </div>
+      </div>
+      <div class="status" id="status">White to move</div>
+      <button class="reset-btn" id="reset-btn">Reset Board</button>
+    </div>
+
+    <div class="move-panel">
+      <div class="move-panel-header">
+        <span>Moves</span>
+        <button class="copy-btn" id="copy-btn">Copy</button>
+      </div>
+      <div class="move-list" id="move-list"></div>
     </div>
   </div>
-  <div class="status" id="status">White to move</div>
-  <button class="reset-btn" id="reset-btn">Reset Board</button>
 
   <div class="content">
     <h2>About the game</h2>
@@ -196,6 +299,13 @@
     let selected = null;
     let legalTargets = [];
     let gameOver = false;
+    let moveHistory = [];
+
+    const PIECE_VALUES = { P: 1, N: 3, B: 3, R: 5, Q: 9, K: 0 };
+
+    function squareName(row, col) {
+      return 'abcdefgh'[col] + (8 - row);
+    }
 
     function pieceColor(p) {
       if (!p) return null;
@@ -326,6 +436,61 @@
       return false;
     }
 
+    function computeDisambiguation(fromRow, fromCol, toRow, toCol, type, color) {
+      let sameFile = false, sameRank = false, found = false;
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          if (r === fromRow && c === fromCol) continue;
+          const p = board[r][c];
+          if (p && p.toUpperCase() === type && pieceColor(p) === color) {
+            if (getLegalMoves(r, c).some(m => m.row === toRow && m.col === toCol)) {
+              found = true;
+              if (c === fromCol) sameFile = true;
+              if (r === fromRow) sameRank = true;
+            }
+          }
+        }
+      }
+      if (!found) return '';
+      if (!sameFile) return 'abcdefgh'[fromCol];
+      if (!sameRank) return String(8 - fromRow);
+      return 'abcdefgh'[fromCol] + String(8 - fromRow);
+    }
+
+    function updateEvalBar() {
+      let whiteScore = 0, blackScore = 0;
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const p = board[r][c];
+          if (!p) continue;
+          const val = PIECE_VALUES[p.toUpperCase()];
+          if (pieceColor(p) === 'white') whiteScore += val; else blackScore += val;
+        }
+      }
+      const diff = whiteScore - blackScore;
+      const clamped = Math.max(-10, Math.min(10, diff));
+      const pct = 50 + clamped * 5;
+      document.getElementById('eval-fill').style.height = pct + '%';
+      const label = diff === 0 ? '0.0' : (diff > 0 ? '+' : '') + diff.toFixed(1);
+      document.getElementById('eval-label').textContent = label;
+    }
+
+    function renderMoveList() {
+      const listEl = document.getElementById('move-list');
+      listEl.innerHTML = '';
+      for (let i = 0; i < moveHistory.length; i += 2) {
+        const num = i / 2 + 1;
+        const row = document.createElement('div');
+        row.className = 'move-row';
+        row.innerHTML =
+          '<span class="move-num">' + num + '.</span>' +
+          '<span class="move-white">' + (moveHistory[i] || '') + '</span>' +
+          '<span class="move-black">' + (moveHistory[i + 1] || '') + '</span>';
+        listEl.appendChild(row);
+      }
+      listEl.scrollTop = listEl.scrollHeight;
+    }
+
     function render() {
       const boardEl = document.getElementById('board');
       boardEl.innerHTML = '';
@@ -364,6 +529,8 @@
         document.getElementById('status').textContent =
           (turn === 'white' ? 'White to move' : 'Black to move') + (inCheck ? ' — Check!' : '');
       }
+      updateEvalBar();
+      renderMoveList();
     }
 
     function handleClick(row, col) {
@@ -373,10 +540,26 @@
       if (selected) {
         const target = legalTargets.find(m => m.row === row && m.col === col);
         if (target) {
+          const fromRow = selected.row, fromCol = selected.col;
+          const movingPiece = board[fromRow][fromCol];
+          const type = movingPiece.toUpperCase();
+          const color = pieceColor(movingPiece);
+          const wasCapture = board[row][col] !== '';
+          const disambig = type !== 'P' ? computeDisambiguation(fromRow, fromCol, row, col, type, color) : '';
+
           board[row][col] = board[selected.row][selected.col];
           board[selected.row][selected.col] = '';
-          if (board[row][col] === 'P' && row === 0) board[row][col] = 'Q';
-          if (board[row][col] === 'p' && row === 7) board[row][col] = 'q';
+          let promoted = false;
+          if (board[row][col] === 'P' && row === 0) { board[row][col] = 'Q'; promoted = true; }
+          if (board[row][col] === 'p' && row === 7) { board[row][col] = 'q'; promoted = true; }
+
+          let san;
+          if (type === 'P') {
+            san = (wasCapture ? 'abcdefgh'[fromCol] + 'x' : '') + squareName(row, col);
+            if (promoted) san += '=Q';
+          } else {
+            san = type + disambig + (wasCapture ? 'x' : '') + squareName(row, col);
+          }
 
           turn = turn === 'white' ? 'black' : 'white';
           selected = null;
@@ -385,10 +568,16 @@
           if (!hasAnyLegalMoves(turn)) {
             gameOver = true;
             const winner = turn === 'white' ? 'Black' : 'White';
-            document.getElementById('status').textContent = isInCheck(turn)
-              ? winner + ' wins by checkmate! ♚'
-              : 'Stalemate — it\'s a draw.';
+            if (isInCheck(turn)) {
+              san += '#';
+              document.getElementById('status').textContent = winner + ' wins by checkmate! ♚';
+            } else {
+              document.getElementById('status').textContent = 'Stalemate — it\'s a draw.';
+            }
+          } else if (isInCheck(turn)) {
+            san += '+';
           }
+          moveHistory.push(san);
           render();
           return;
         }
@@ -416,10 +605,35 @@
       selected = null;
       legalTargets = [];
       gameOver = false;
+      moveHistory = [];
       render();
     }
 
     document.getElementById('reset-btn').addEventListener('click', resetGame);
+    function copyText(text) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(text);
+      }
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      try { document.execCommand('copy'); } finally { document.body.removeChild(textarea); }
+      return Promise.resolve();
+    }
+
+    document.getElementById('copy-btn').addEventListener('click', () => {
+      const text = moveHistory.map((m, i) => (i % 2 === 0 ? (i / 2 + 1) + '. ' + m : m)).join(' ');
+      const copyBtn = document.getElementById('copy-btn');
+      copyText(text).then(() => {
+        const original = copyBtn.textContent;
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => { copyBtn.textContent = original; }, 1200);
+      });
+    });
     render();
   </script>
 
