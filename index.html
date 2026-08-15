@@ -712,10 +712,7 @@
     }
 
     document.getElementById('reset-btn').addEventListener('click', resetGame);
-    function copyText(text) {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        return navigator.clipboard.writeText(text);
-      }
+    function copyTextFallback(text) {
       const textarea = document.createElement('textarea');
       textarea.value = text;
       textarea.style.position = 'fixed';
@@ -727,6 +724,13 @@
       return Promise.resolve();
     }
 
+    function copyText(text) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(text).catch(() => copyTextFallback(text));
+      }
+      return copyTextFallback(text);
+    }
+
     document.getElementById('copy-btn').addEventListener('click', () => {
       const text = moveHistory.map((m, i) => (i % 2 === 0 ? (i / 2 + 1) + '. ' + m : m)).join(' ');
       const copyBtn = document.getElementById('copy-btn');
@@ -734,6 +738,9 @@
         const original = copyBtn.textContent;
         copyBtn.textContent = 'Copied!';
         setTimeout(() => { copyBtn.textContent = original; }, 1200);
+      }).catch(() => {
+        copyBtn.textContent = 'Copy failed';
+        setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1200);
       });
     });
     render();
