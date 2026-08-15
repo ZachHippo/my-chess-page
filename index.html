@@ -24,22 +24,25 @@
     margin-bottom: 30px;
   }
   .game-area {
-    display: flex;
-    flex-direction: row;
-    align-items: flex-start;
-    gap: 16px;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: start;
+    width: 100%;
     margin-bottom: 6px;
   }
   .board-column {
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-self: center;
   }
   .eval-bar-wrapper {
     display: flex;
     flex-direction: column;
     align-items: center;
     padding-top: 4px;
+    justify-self: end;
+    margin-right: 32px;
   }
   .eval-bar {
     width: 24px;
@@ -73,6 +76,8 @@
     border-radius: 4px;
     background: #241f1a;
     margin-top: 4px;
+    justify-self: start;
+    margin-left: 32px;
   }
   .move-panel-header {
     display: flex;
@@ -226,7 +231,7 @@
   <div class="game-area">
     <div class="eval-bar-wrapper">
       <div class="eval-bar" id="eval-bar"><div class="eval-fill" id="eval-fill"></div></div>
-      <div class="eval-label" id="eval-label">0.0</div>
+      <div class="eval-label" id="eval-label">&hellip;</div>
     </div>
 
     <div class="board-column">
@@ -457,7 +462,14 @@
       return 'abcdefgh'[fromCol] + String(8 - fromRow);
     }
 
-    function updateEvalBar() {
+    function setEvalBar(pawnsForWhite, label) {
+      const clamped = Math.max(-10, Math.min(10, pawnsForWhite));
+      const pct = 50 + clamped * 5;
+      document.getElementById('eval-fill').style.height = pct + '%';
+      document.getElementById('eval-label').textContent = label;
+    }
+
+    function updateEvalBarMaterial() {
       let whiteScore = 0, blackScore = 0;
       for (let r = 0; r < 8; r++) {
         for (let c = 0; c < 8; c++) {
@@ -468,11 +480,100 @@
         }
       }
       const diff = whiteScore - blackScore;
-      const clamped = Math.max(-10, Math.min(10, diff));
-      const pct = 50 + clamped * 5;
-      document.getElementById('eval-fill').style.height = pct + '%';
-      const label = diff === 0 ? '0.0' : (diff > 0 ? '+' : '') + diff.toFixed(1);
-      document.getElementById('eval-label').textContent = label;
+      const label = diff === 0 ? '0.0 (material)' : (diff > 0 ? '+' : '') + diff.toFixed(1) + ' (material)';
+      setEvalBar(diff, label);
+    }
+
+    // --- Stockfish engine integration ---
+    // Loaded from a CDN and run in a Web Worker via a Blob URL, since browsers
+    // block Workers from loading cross-origin scripts directly.
+    let engine = null;
+    let engineReady = false;
+    let engineFailed = false;
+    let pendingScore = null;
+
+    function boardToFEN() {
+      const rows = [];
+      for (let r = 0; r < 8; r++) {
+        let row = '';
+        let empty = 0;
+        for (let c = 0; c < 8; c++) {
+          const p = board[r][c];
+          if (p === '') {
+            empty++;
+          } else {
+            if (empty > 0) { row += empty; empty = 0; }
+            row += p;
+          }
+        }
+        if (empty > 0) row += empty;
+        rows.push(row);
+      }
+      const active = turn === 'white' ? 'w' : 'b';
+      const fullmove = Math.floor(moveHistory.length / 2) + 1;
+      // No castling or en passant tracking in this simplified engine, so both are always '-'.
+      return rows.join('/') + ' ' + active + ' - - 0 ' + fullmove;
+    }
+
+    function requestEngineEval() {
+      if (engineFailed) { updateEvalBarMaterial(); return; }
+      if (!engineReady || !engine) return;
+      pendingScore = null;
+      engine.postMessage('stop');
+      engine.postMessage('position fen ' + boardToFEN());
+      engine.postMessage('go movetime 700');
+    }
+
+    function applyPendingScore() {
+      if (!pendingScore) return;
+      const sideToMove = turn;
+      if (pendingScore.mate !== undefined) {
+        const forWhite = sideToMove === 'white' ? pendingScore.mate : -pendingScore.mate;
+        setEvalBar(forWhite > 0 ? 10 : -10, '#' + Math.abs(pendingScore.mate));
+      } else {
+        const cpForWhite = sideToMove === 'white' ? pendingScore.cp : -pendingScore.cp;
+        const pawns = cpForWhite / 100;
+        const label = pawns === 0 ? '0.0' : (pawns > 0 ? '+' : '') + pawns.toFixed(1);
+        setEvalBar(pawns, label);
+      }
+    }
+
+    function initEngine() {
+      fetch('https://cdn.jsdelivr.net/npm/stockfish.js@10.0.2/stockfish.js')
+        .then(res => res.text())
+        .then(scriptText => {
+          const blob = new Blob([scriptText], { type: 'application/javascript' });
+          engine = new Worker(URL.createObjectURL(blob));
+          engine.onmessage = (e) => {
+            const line = e.data;
+            if (typeof line !== 'string') return;
+            if (line === 'readyok') {
+              engineReady = true;
+              requestEngineEval();
+              return;
+            }
+            const mateMatch = line.match(/score mate (-?\d+)/);
+            const cpMatch = line.match(/score cp (-?\d+)/);
+            if (mateMatch) {
+              pendingScore = { mate: parseInt(mateMatch[1], 10) };
+            } else if (cpMatch) {
+              pendingScore = { cp: parseInt(cpMatch[1], 10) };
+            }
+            if (line.startsWith('bestmove')) {
+              applyPendingScore();
+            }
+          };
+          engine.onerror = () => {
+            engineFailed = true;
+            updateEvalBarMaterial();
+          };
+          engine.postMessage('uci');
+          engine.postMessage('isready');
+        })
+        .catch(() => {
+          engineFailed = true;
+          updateEvalBarMaterial();
+        });
     }
 
     function renderMoveList() {
@@ -529,7 +630,6 @@
         document.getElementById('status').textContent =
           (turn === 'white' ? 'White to move' : 'Black to move') + (inCheck ? ' — Check!' : '');
       }
-      updateEvalBar();
       renderMoveList();
     }
 
@@ -579,6 +679,7 @@
           }
           moveHistory.push(san);
           render();
+          requestEngineEval();
           return;
         }
         if (piece && pieceColor(piece) === turn) {
@@ -607,6 +708,7 @@
       gameOver = false;
       moveHistory = [];
       render();
+      requestEngineEval();
     }
 
     document.getElementById('reset-btn').addEventListener('click', resetGame);
@@ -635,6 +737,7 @@
       });
     });
     render();
+    initEngine();
   </script>
 
 </body>
