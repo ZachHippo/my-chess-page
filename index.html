@@ -23,12 +23,47 @@
     margin-top: 4px;
     margin-bottom: 30px;
   }
+  .board-wrapper {
+    position: relative;
+    display: inline-block;
+    margin-bottom: 14px;
+  }
   .board {
     display: grid;
     grid-template-columns: repeat(8, 60px);
     grid-template-rows: repeat(8, 60px);
     border: 4px solid #c9b58b;
-    margin-bottom: 14px;
+  }
+  .rank-labels {
+    position: absolute;
+    left: -22px;
+    top: 4px;
+    display: flex;
+    flex-direction: column;
+  }
+  .rank-labels span {
+    height: 60px;
+    width: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #c9b58b;
+    font-size: 0.9em;
+  }
+  .file-labels {
+    position: absolute;
+    left: 4px;
+    bottom: -22px;
+    display: flex;
+  }
+  .file-labels span {
+    width: 60px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #c9b58b;
+    font-size: 0.9em;
   }
   .square {
     width: 60px;
@@ -101,7 +136,15 @@
   <h1>&#9812; Why I Love Chess</h1>
   <p class="subtitle">Chess is great and learning how to code is difficult.</p>
 
-  <div class="board" id="board"></div>
+  <div class="board-wrapper">
+    <div class="board" id="board"></div>
+    <div class="rank-labels">
+      <span>8</span><span>7</span><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span>
+    </div>
+    <div class="file-labels">
+      <span>a</span><span>b</span><span>c</span><span>d</span><span>e</span><span>f</span><span>g</span><span>h</span>
+    </div>
+  </div>
   <div class="status" id="status">White to move</div>
   <button class="reset-btn" id="reset-btn">Reset Board</button>
 
