@@ -47,6 +47,7 @@
   .piece-white { color: #fdf6e3; text-shadow: 0 0 2px #000, 0 0 3px #000; }
   .piece-black { color: #1a1512; text-shadow: 0 0 2px #fff, 0 0 3px #fff; }
   .selected { outline: 3px solid #e0c068; outline-offset: -3px; }
+  .in-check { outline: 3px solid #c0392b; outline-offset: -3px; }
   .move-dot::after {
     content: '';
     position: absolute;
@@ -110,10 +111,10 @@
       Chess is a two-player strategy game played on an 8x8 board of alternating
       light and dark squares &mdash; just like the one above. Each side starts
       with 16 pieces, and the goal is to checkmate the opponent's king: trap it
-      so it can't escape capture. The board above is a simplified version &mdash;
-      click a piece to see where it can legally move, then click a highlighted
-      square to move it there. The game here ends when a king is actually
-      captured, rather than using full checkmate/check rules.
+      so it can't escape capture. Click a piece to see where it can legally
+      move, then click a highlighted square to move it there. Real check rules
+      are enforced &mdash; you can't move into check, and the game ends in
+      checkmate (or a stalemate draw) just like a real game.
     </p>
 
     <h2>A few fun facts</h2>
@@ -226,6 +227,61 @@
       return moves;
     }
 
+    function findKing(color) {
+      const target = color === 'white' ? 'K' : 'k';
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          if (board[r][c] === target) return { row: r, col: c };
+        }
+      }
+      return null;
+    }
+
+    function isSquareAttacked(row, col, byColor) {
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const p = board[r][c];
+          if (p && pieceColor(p) === byColor) {
+            if (getMoves(r, c).some(m => m.row === row && m.col === col)) return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    function isInCheck(color) {
+      const king = findKing(color);
+      if (!king) return false;
+      const opponent = color === 'white' ? 'black' : 'white';
+      return isSquareAttacked(king.row, king.col, opponent);
+    }
+
+    function getLegalMoves(row, col) {
+      const piece = board[row][col];
+      const color = pieceColor(piece);
+      const pseudoMoves = getMoves(row, col);
+      const legal = [];
+      for (const m of pseudoMoves) {
+        const capturedPiece = board[m.row][m.col];
+        board[m.row][m.col] = piece;
+        board[row][col] = '';
+        if (!isInCheck(color)) legal.push(m);
+        board[row][col] = piece;
+        board[m.row][m.col] = capturedPiece;
+      }
+      return legal;
+    }
+
+    function hasAnyLegalMoves(color) {
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const p = board[r][c];
+          if (p && pieceColor(p) === color && getLegalMoves(r, c).length > 0) return true;
+        }
+      }
+      return false;
+    }
+
     function render() {
       const boardEl = document.getElementById('board');
       boardEl.innerHTML = '';
@@ -253,7 +309,16 @@
         }
       }
       if (!gameOver) {
-        document.getElementById('status').textContent = turn === 'white' ? 'White to move' : 'Black to move';
+        const inCheck = isInCheck(turn);
+        if (inCheck) {
+          const king = findKing(turn);
+          if (king) {
+            const idx = king.row * 8 + king.col;
+            boardEl.children[idx].classList.add('in-check');
+          }
+        }
+        document.getElementById('status').textContent =
+          (turn === 'white' ? 'White to move' : 'Black to move') + (inCheck ? ' — Check!' : '');
       }
     }
 
@@ -264,26 +329,28 @@
       if (selected) {
         const target = legalTargets.find(m => m.row === row && m.col === col);
         if (target) {
-          const captured = board[row][col];
           board[row][col] = board[selected.row][selected.col];
           board[selected.row][selected.col] = '';
           if (board[row][col] === 'P' && row === 0) board[row][col] = 'Q';
           if (board[row][col] === 'p' && row === 7) board[row][col] = 'q';
 
-          if (captured === 'K' || captured === 'k') {
-            gameOver = true;
-            document.getElementById('status').textContent = (turn === 'white' ? 'White' : 'Black') + ' wins! ♚';
-          } else {
-            turn = turn === 'white' ? 'black' : 'white';
-          }
+          turn = turn === 'white' ? 'black' : 'white';
           selected = null;
           legalTargets = [];
+
+          if (!hasAnyLegalMoves(turn)) {
+            gameOver = true;
+            const winner = turn === 'white' ? 'Black' : 'White';
+            document.getElementById('status').textContent = isInCheck(turn)
+              ? winner + ' wins by checkmate! ♚'
+              : 'Stalemate — it\'s a draw.';
+          }
           render();
           return;
         }
         if (piece && pieceColor(piece) === turn) {
           selected = { row, col };
-          legalTargets = getMoves(row, col);
+          legalTargets = getLegalMoves(row, col);
         } else {
           selected = null;
           legalTargets = [];
@@ -294,7 +361,7 @@
 
       if (piece && pieceColor(piece) === turn) {
         selected = { row, col };
-        legalTargets = getMoves(row, col);
+        legalTargets = getLegalMoves(row, col);
         render();
       }
     }
